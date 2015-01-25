@@ -1,0 +1,403 @@
+#! /usr/bin/python
+
+# This line is a comment
+#    This file is part of DEAP.
+#
+#    DEAP is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU Lesser General Public License as
+#    published by the Free Software Foundation, either version 3 of
+#    the License, or (at your option) any later version.
+#
+#    DEAP is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public
+#    License along with DEAP. If not, see <http://www.gnu.org/licenses/>.
+
+
+
+import os,sys
+sys.path.insert(0,'C:\\Program Files (x86)\\PTI\\PSSE33\\PSSBIN')
+os.environ['PATH'] = 'C:\\Program Files (x86)\\PTI\\PSSE33\\PSSBIN'+';'+os.environ['PATH']
+from pylab import *
+import LossesPython11
+import fitness
+
+from deap import base
+from deap import creator
+from deap import tools
+
+
+__author__="HMLE"
+__date__ ="$13.mai.2013 18:16:35$"
+
+if __name__ == "__main__":
+    print "Hello World";
+
+
+creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+creator.create("Individual", list, fitness=creator.FitnessMin)
+
+#-------------- DATA NEEDED TO DEFINE CODIFICATION
+global buses, x_size
+
+Telemark = 1 # 1 opens Telemark case, 0 opens Vestfold case
+
+
+if Telemark == 1:
+	buses = [14, 17, 19, 20, 21, 27, 30, 31, 32, 33, 34,  42, 400] #[21, 31, 32] #Available buses in Telemark
+else:
+	buses =  [2, 101, 901, 1217, 1255, 1278, 1390, 1398, 1408, 1413, 1415] #, 1418, 1419, 1424, 1426, 1427, 1428, 1429, 1436, 1439, 1498, 1501, 1587, 1801, 2001, 2101] #Available buses in Vestfold
+	#[2, 101, 201, 301, 602, 901, 1217, 1255, 1257, 1273, 1278, 1283, 1390, 1398, 1405, 1408, 1413, 1415, 1416, 1417, 1418, 1419, 1420, 1424, 1425, 1426, 1427, 1428, 1429, 1436, 1439, 1498, 1501, 1587, 1593, 1801, 2001, 2101] #Available buses in Vestfold
+k=size(buses) #number of AVAILABLE buses
+bitspercb = 11 # BITS PER CAPACITOR BANK (CB)
+x_size = k * bitspercb #each CB will have 12 bits and each chromosome 12*k
+M = pow(2,bitspercb)-1
+
+import random
+
+toolbox = base.Toolbox()
+# Attribute generator
+toolbox.register("attr_bool", random.randint, 0, 1)
+# Structure initializers
+toolbox.register("individual", tools.initRepeat, creator.Individual,
+    toolbox.attr_bool, x_size)
+toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+	
+def d2b(f, b):
+	n = int(f)
+	base = int(b)
+	ret = ""
+	for y in range(base-1, -1, -1):
+		ret += str((n >> y) & 1)
+	return ret
+
+def conversion(indivi,max_power_trans):
+	#x_size = int(len(str(indivi)))
+	n = bitspercb
+	xa =''
+	for j in range(x_size):
+		xa = xa + str(int(indivi[j]))
+
+	xcbs = [ float(int(xa[j*n : (j+1)*n],2))*max_power_trans[j]/M for j in range(k) ]
+	
+	for i in range(len(xcbs)):
+		if xcbs[i] < kscb*cb_minimum_size:
+			xcbs[i] = 0.
+	return xcbs
+
+
+
+def evalOneMax(individual):
+    individual_c = conversion(individual,max_power_trans) #Converts from binary representation to decimal
+    return [fitness.fit(individual_c, T, years, KE,KR,KM,Kext,cb_minimum_size, cb_maximum_size, winter, Telemark, slope, constraints, buses, max_power_trans, num_transf, nominal_volt, nominal_pf)[0]]
+
+# Operator registering
+toolbox.register("evaluate", evalOneMax)
+toolbox.register("mate", tools.cxTwoPoints)
+toolbox.register("mutate", tools.mutFlipBit, indpb=0.05)
+toolbox.register("select", tools.selTournament, tournsize=4)
+#toolbox.register("select", tools.selRoulette)
+
+def transform(fitnesses):
+	#print fitnesses
+	min_f = min(fitnesses)[0]
+	max_f = max(fitnesses)[0]
+	#print min_f, max_f
+	fitness_factor = 0.001
+	base = -min_f + fitness_factor*(max_f-min_f)# fitness
+	fitnesses = list(map(float,array(fitnesses) + base))
+	#print fitnesses
+	return fitnesses
+
+def factor(t,p,n): #Economic factor, rate
+	factor = 0
+	for i in range(n):
+		factor += ((1+p)**i)/((1+t)**i)
+	return factor
+
+def main():
+	now = datetime.datetime.now() #Time
+	print str(now)
+	##########################-DATA-##################### HECTOR
+	global cb_minimum_size, cb_maximum_size, cb_maximum_size2, T, KE, KR, KM, Kext, winter, Telemark, slope, constraints, nominal_volt, nominal_pf, nom_pf, nom_deltavolt, years, years1, years2, years3, max_power_trans, num_transf, kscb
+	if Telemark == 1: #Maximum power allowed by transformers
+		max_power_trans = [30., 30., 15., 40., 30., 75.75, 30., 15., 15., 30., 15., 30.75, 10.]
+		num_transf = [[2, 2, 1, 2, 2, 4, 2, 1, 1, 2, 1, 2, 1 ], [ 15., 15., 15., 20., 15.,  18.9375, 15.,  15., 15., 15.,15.,15.375, 10.]]
+		#Nominal voltages for buses from original case in Telemark
+		nominal_volt = [0.9864000082015991, 0.9965774416923523, 0.9820456504821777, 0.9935963749885559, 0.9564775824546814, 0.9553197622299194, 0.9449586272239685, 0.9449586272239685, 0.9779844880104065, 0.9454360008239746, 0.9484376907348633, 0.969795286655426, 0.9514490962028503, 0.9534476399421692, 0.9526903033256531, 0.948431134223938, 0.9451680779457092, 0.9429348111152649, 0.946739137172699, 0.9481845498085022, 0.9560107588768005, 0.9560999870300293, 0.9476392269134521, 0.9833024740219116, 0.9833565354347229, 0.948107123374939, 0.9480345845222473, 0.947547435760498, 0.9469067454338074, 0.9478999972343445, 0.9475882649421692, 0.956059992313385, 0.9938703179359436, 0.9465696811676025, 0.9484127759933472, 0.948207676410675, 0.947365403175354, 0.961199164390564, 0.9610193967819214, 0.9795196056365967, 0.9821054339408875, 0.9920745491981506, 0.9942881464958191, 1.0, 0.9931477904319763, 0.9938681125640869, 0.9925756454467773, 1.0440583229064941, 1.0086678266525269, 1.0245585441589355, 1.0248277187347412, 1.032738208770752, 1.0292413234710693, 1.0298970937728882, 1.0154999494552612, 1.0092004537582397, 1.0, 1.0189517736434937, 1.056765079498291, 1.059999942779541, 0.9832600951194763, 0.932507336139679, 0.9296169877052307, 0.9936174154281616, 0.992900013923645, 0.9922121167182922, 0.9923163056373596, 0.9893938302993774, 0.9460427165031433, 0.9866999983787537, 0.9901164174079895, 0.9833300113677979, 1.007599949836731, 0.9444400072097778, 0.9444400072097778, 0.996707558631897]
+		nominal_pf = [0.9486832946234875, 0.9821790144404517, 0.9486833038500962, 0.9506657018801034, 0.9962893617451879, 0.9883086622616891, 0.9919632988868424, 0.9880249334593876, 0.9912559862184933, 0.9724746311731169, 0.9499899610415863, 0.9976765629911872, 0.9957795922726442, 0.9985327923576389, 0.9978616105858487, 0.9988997443289251, 0.996880972941118, 0.9858558458931067, 0.9507749606047069, 1.0, 6.123031769111886e-17, 0.9948757345555095, 6.123031769111886e-17, 0.99998456825799, 0.9501238797966282, 0.9520285621287126, 0.9499872732906824, 0.9486832917676322, 0.9486833038500962, 0.9505216538778778, 0.949925788782497, 0.9510340720635365, 0.9508714370812013, 0.9497947826324705, 0.9886443956635264, 0.950091809080251, 0.9524241458810333, 0.9495753205634484, 0.9524241458810333, 0.9500317509596723, 0.9761870601839527, 0.9500317509596723, 0.9486832953578502]
+	else:
+		max_power_trans = [16., 25., 22.5, 10., 12.5, 12.5, 31.5, 15.75, 25., 8., 25., 8., 22.5, 15.75, 15., 15., 20., 31.5, 25., 20., 15., 15.75, 12.5, 22.5, 30., 31.5, 25., 25., 25., 25.75, 15.75, 31.5,  37.5, 25., 20., 10., 8., 20.]
+		num_transf = [[1, 1, 2, 2, 1, 1, 2, 1, 2, 1, 2, 1, 2, 1, 1, 1, 2, 2, 4, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 3, 2, 2, 2, 2, 2], \
+					[ 16., 25.,11.25, 5.,12.5,12.5,15.75,15.75,12.5, 8.,12.5, 8.,11.25, 15.75,15.,15.,10.,15.75,6.25,10.,15.,15.75,12.5,11.25,15.,15.75,12.5,12.5,12.5,12.875,15.75,15.75,12.5,12.5,10.,5.,4., 10.]]
+		nominal_volt = [0.9962496161460876, 0.8944634199142456, 0.9680748581886292, 0.9728454351425171, 0.899463951587677, 0.966580331325531, 0.8976662158966064, 0.8922545909881592, 0.8957124352455139, 0.9061315655708313, 0.9900145530700684, 0.9030084609985352, 0.9702364206314087, 0.8968620300292969, 0.9006768465042114, 1.0, 0.9894052147865295, 0.9749227166175842, 0.9014720916748047, 0.9709425568580627, 1.0, 0.9972646832466125, 0.9688130617141724, 0.9619632959365845, 0.9933841824531555, 0.9853055477142334, 0.9594244956970215, 0.9763199687004089, 0.9858558773994446, 0.9696002006530762, 0.9865742325782776, 0.9747240543365479, 0.9868267774581909, 0.9753950834274292, 0.9705768823623657, 0.9701027870178223, 0.9708573222160339, 0.9649279117584229, 0.9593239426612854, 0.9646528363227844, 0.9635495543479919, 0.9630184769630432, 0.9634543657302856, 0.964869499206543, 0.9603306651115417, 0.9596023559570312, 0.9644697308540344, 0.9888824224472046, 0.9636656045913696, 0.971640408039093, 0.9655811190605164, 1.0003968477249146, 1.0, 0.967119574546814, 0.8990491628646851, 1.0008752346038818, 1.0, 0.9640973210334778, 0.9622787833213806, 0.8984959721565247, 0.8985216021537781, 0.8962931036949158, 0.8961841464042664]
+		nominal_pf = [0.950366715725956, 0.989570214512584, 0.9994127625283334, 0.9506054569087762, 0.950397131480438, 0.9524241458810333, 0.9942878833962411, 0.9492535886177365, 0.9991330729776726, 0.9932631396929565, 0.9865275805774509, 0.950309031986394, 0.9246781020556955, 0.9933596874179859, 0.8750340416176856, 0.9833821812458453, 0.9492749218114773, 0.7071067811865476, 0.9993034265138183, 0.9980321934841888, 0.9925434562753054, 0.9504697366010705, 0.9505306073644221, 0.9775210452519167, 0.9925706143866178, 0.9942614425566723, 0.9982743733090996, 0.9945390408505832, 0.9942149980368328, 0.9981270234595921, 0.9941347452354805, 0.994489027530242, 0.9985910484291765, 0.9486833029146797, 0.9497017175440386, 0.9946586230806512, 0.9818368969333605, 0.9497356063145225, 0.9837447491577539, 0.9942653331868008, 0.9496286504502847, 0.9494461988426094, 0.9986614439905438]
+
+	if Telemark == 1:
+		cb_maximum_size = 75.75 #CB Power in MVAr NOT USED
+		cb_maximum_size2 = cb_maximum_size #Modifable parameter NOT USED
+		cb_maximum_size20 = cb_maximum_size2 #NOT USED
+		kscb0 = 0.5 #Modifable parameter
+		kscb1 = 0.4
+		kscb = kscb0
+	else:
+		cb_maximum_size = 31.5 #CB Power in MVAr NOT USED
+		cb_maximum_size2 = 18. #CB Power in MVAr. Modifable parameter NOT USED
+		cb_maximum_size20 = cb_maximum_size2 #NOT USED
+		kscb0 = 0.5 #Modifable parameter
+		kscb1 = 0.5
+		kscb = kscb0
+	cb_minimum_size = 6. #Power in MVAr
+	#number_of_steps = 91 #Search space is number_of_steps^k, k = number of capacitors
+	nom_pf = 0.95
+	nom_deltavolt = 0.03
+	#search_space_size = number_of_steps**k
+	#sizes = zeros(number_of_steps)
+	#step = (cb_maximum_size-cb_minimum_size) / (number_of_steps-1)
+	winter = 1 # 1 opens winter case, 0 opens summer case
+	slope = 10e10 #slope of the line that defines the out-of-the-limits costs. It has to be adjusted in function of the other costs so that it has approximately the same magnitude
+	constraints = [1., 1., 1.,0, k] #Activate constraints on [Voltages, Power factor, CB positive power]
+
+
+	#----------------NOK costs
+	T = 3000 #Period of the year in hours
+	years = 20 #life cycle of the cbs
+	#if winter == 1: #Period of the year in hours
+	#	T = 365*2/3 *24
+	#else:
+	#	T = 365*1/3 *24
+	KE = 0.35 * 1000 # 0.35 NOK/kWh = 350 NOK/MWh Active power
+	KR = 30. * 1000 #30 NOK per kvar. 30000 NOK per Mvar. From Statnett and from Knut Skagerak
+	KM = 2000 #Cost maintenance in NOK. Provided by Skagerak
+	Kext = 500000 #Cost extension of the building and switchgears
+	t = 0.045 # Discount rate
+	increment_losses = 0.002
+	increment_reactivepower = 0.002
+	increment_fixedcosts = 0.01
+	years1 = factor(t,increment_losses,years)
+	years2 = factor(t,increment_reactivepower,years)
+	years3 = factor(t,increment_fixedcosts,years)
+	years = [years,years1,years2,years3]
+	#random.seed(64)
+
+	#pop = toolbox.population(n=1)
+	#no_cbs = zeros(x_size)
+	#pop[0] = no_cbs
+	#print "pop", pop[0]
+	#print no_cbs
+	#fit2 = toolbox.evaluate(pop[0])
+	#pop[0].fitness.values = fit2
+	#print pop
+
+	#------First population
+	gn = 0 #Register generation number
+	gnkscb = 0 #Register generation number
+
+	n, CXPB, MUTPB, NGEN = 200, 0.65, 0.35, 10 #GENETIC ALGORITHM PARAMETERS
+	pop = toolbox.population(n)
+	
+
+	#------ Solution without CBs -------------- HECTOR
+	no_cbs = zeros(k)
+	fit2ncb = fitness.fit(no_cbs, T, years, KE,KR,KM,Kext,cb_minimum_size, cb_maximum_size, winter, Telemark, slope, constraints, buses, max_power_trans, num_transf, nominal_volt, nominal_pf)
+	print "Solution without CBs"
+	print "Total cost ", fit2ncb
+	
+
+	#------------------------------------------ START OF GA
+
+	print("Start of evolution")
+
+	# Evaluate the entire population
+	fitnesses = list(map(toolbox.evaluate, pop))
+	#fitnesses = transform(fitnesses)
+	for ind, fit2 in zip(pop, fitnesses):
+		ind.fitness.values = fit2
+	min_f = min(fitnesses)
+
+	print("  Evaluated %i individuals" % len(pop))
+
+	bests = [] #TO PLOT AT THE END HECTOR
+	bestscb =[]
+
+
+	# Begin the evolution
+	for g in range(NGEN):
+		print("-- Generation %i --" % g)
+
+		# Select the next generation individuals
+		offspring = toolbox.select(pop, n-1)
+		# Clone the selected individuals
+		offspring = list(map(toolbox.clone, offspring))
+
+		# Apply crossover and mutation on the offspring
+		for child1, child2 in zip(offspring[::2], offspring[1::2]):
+			if random.random() < CXPB:
+				toolbox.mate(child1, child2)
+				del child1.fitness.values
+				del child2.fitness.values
+
+		for mutant in offspring:
+			if random.random() < MUTPB:
+				toolbox.mutate(mutant)
+				del mutant.fitness.values
+
+		# Evaluate the individuals with an invalid fitness
+		invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+		fitnesses = map(toolbox.evaluate, invalid_ind)
+		#fitnesses = transform(fitnesses)
+		for ind, fit2 in zip(invalid_ind, fitnesses):
+			ind.fitness.values = fit2
+
+		print("Evaluated %i individuals" % len(invalid_ind))
+
+		# The population is entirely replaced by the offspring, (edited) except the best solution
+		best_ind = tools.selBest(pop, 1)[0]
+		#####################################################
+		#best_indcb = tools.selBest(pop, 1)[1]
+		#bestscb.append(best_indcb)
+		pop = []
+		pop.append(best_ind) #Elitism selection HECTOR
+		pop[1:] = offspring
+
+		# Gather all the fitnesses in one list and print the stats
+		fits = [ind.fitness.values[0] for ind in pop]
+		fits2 = sorted(fits)
+		fits2 = fits2[0:100]
+		length = len(fits2)
+		mean = sum(fits2) / length
+		sum2 = sum(x*x for x in fits2)
+		std = abs(sum2 / length - mean**2)**0.5
+	
+
+		min_fn = fits2[0] #BEST FITNESS
+		bests.append(min(fits)) #TO PLOT AT THE END HECTOR
+		if min_fn < min_f: #MODIFICATIONS HECTOR
+			min_f = min_fn
+			gn = g
+			if  g > 28:
+				gnkscb += 1
+				kscb = kscb1
+				cb_maximum_size2 = cb_maximum_size
+		
+		print("  Min %s" % min_f)
+		print("  Max %s" % fits2[99])
+		print("  Avg %s" % mean)
+		print("  Std %s" % std)
+
+	print("-- End of (successful) evolution --")
+
+	#Save the best CBC as a PSS\E case
+
+
+	############################-RESULTS-######################### HECTOR
+	if Telemark == 1:
+		file1 = open("Telemark Winter Solutions ESGA.txt","a")
+		file1.write("\nWinter season \n")
+		print "##################Telemark Winter########################"
+	else:
+		file1 = open("Vestfold Winter Solutions ESGA.txt","a")
+		file1.write("\nWinter season \n")
+		print "###################Vestfold Winter#########################"
+
+	if gnkscb < 2:
+		print "H-----------------------"
+		kscb = kscb0
+		cb_maximum_size2 = cb_maximum_size20
+	print kscb
+
+	best_ind = tools.selBest(pop, 1)[0]
+	#print("Best individual is %s, %s" % (best_ind, best_ind.fitness.values))
+	print("Best individual fitness %s" % (best_ind.fitness.values))
+	min_cb = conversion(best_ind,max_power_trans)
+	print "Best individual ", min_cb
+	print "@ generation number ", gn
+	#Flosses = LossesPython11.losses(min_cb,buses,Telemark, slope, cb_minimum_size, max_power_trans, constraints, nominal_volt, nominal_pf)
+	Flosses = fitness.fit(min_cb, T, years, KE, KR, KM, Kext, cb_minimum_size, cb_maximum_size, winter, Telemark, slope, constraints, buses, max_power_trans, num_transf, nominal_volt, nominal_pf)
+	fitbest = toolbox.evaluate(best_ind)
+	print "Best individual fitness ", fitbest
+	now2 = datetime.datetime.now()
+	print str(now2)
+	time_elapsed = now2 - now
+	print "Elapsed time ", time_elapsed
+
+
+	
+	file1.write(str(now2))
+	file1.write(" \n")
+	file1.write("Constraints ")
+	file1.write(str(constraints))
+	file1.write(" \n")
+	file1.write("Bits per CB ")
+	file1.write(str(bitspercb))
+	file1.write(" \n")
+	file1.write("Span of time ")
+	file1.write(str(T))
+	file1.write(" \n")
+	file1.write("The optimum CBC is  = ")
+	file1.write(str(min_cb))
+	#file1.write(" \n")
+	#file1.write(str(best_ind))
+	file1.write(" \n")
+	file1.write("The minimum cost is ")
+	file1.write(str(best_ind.fitness.values))
+	file1.write("\n (Total cost, Lossescosts, Reactcosts, Fixedcosts, Investment, Num. AB, Num. CB, [Active Losses, ReactiveEx, VoltageCC , Power FactorCC, Range CBsCC]) = ")
+	file1.write(str(Flosses))
+	file1.write(" \n")
+	Flosses = [Flosses[0]/1.e6, Flosses[7][0],Flosses[1]/1.e6,Flosses[7][1],Flosses[2]/1.e6,Flosses[4]/1.e6,Flosses[3]/1.e6, Flosses[5], Flosses[6],Flosses[7][2:4]]
+	file1.write(str(Flosses))
+	file1.write(" \n")
+	file1.write("At generation  = ")
+	file1.write(str(gn))
+	file1.write(" \n")
+	file1.write(str([NGEN,CXPB,MUTPB,len(pop)]))
+	file1.write(" \n")
+	file1.write("Cross over probability  = ")
+	file1.write(str(CXPB))
+	file1.write(" \n")
+	file1.write("Mutation probability  = ")
+	file1.write(str(MUTPB))
+	file1.write(" \n")
+	file1.write("Number of generations  = ")
+	file1.write(str(NGEN))
+	file1.write(" \n")
+	file1.write("Population  = ")
+	file1.write(str(len(pop)))
+	file1.write(" \n")
+	file1.write("kscb0  = ")
+	file1.write(str(kscb0))
+	file1.write(" \n")
+	file1.write("kscb1  = ")
+	file1.write(str(kscb1))
+	file1.write(" \n")
+	#means = pylab.mean(array(min_cb))
+	mean2 = sum(min_cb)/Flosses[6]
+	mean3 = sum(min_cb)/Flosses[5]
+	maxcb = max(min_cb)
+	mincb = min(min_cb)
+	file1.write(str([Flosses[6],Flosses[5],sum(min_cb),maxcb,mean2,mincb,fit2ncb[0]-Flosses[0]]))
+	file1.write(" \n \n")
+	print mean2, mean3
+	
+	LossesPython11.constraints_report(nominal_volt, nominal_pf, nom_pf)
+
+	#Ploting data for maximum values for each generation
+	figure(3)
+	plot(range(NGEN),bests, 'ro')
+	axis([0, NGEN, 1e8, 3e8])
+	xlabel('Generations')
+	ylabel('F(x) Minimum')
+	title(r'$F(x)$')
+	show()
+
+	plot(range(NGEN),bests, 'ro')
+	xlabel('Generations')
+	ylabel('F(x) Minimum')
+	title(r'$F(x)$')
+	show()
+
+if __name__ == "__main__":
+    main()
